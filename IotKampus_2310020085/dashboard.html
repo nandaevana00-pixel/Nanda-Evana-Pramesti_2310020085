@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitoring Suhu & Kelembaban WebSocket</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 24px auto;
+      padding: 0 16px;
+      background: #f7f9fb;
+      color: #1f2937;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .card-label {
+      font-size: 14px;
+      color: #6b7280;
+    }
+    .card-value {
+      font-size: 28px;
+      font-weight: bold;
+      margin-top: 6px;
+    }
+    .chart-box {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    button {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      background: #0284c7;
+      color: #ffffff;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0369a1;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h2 style="margin: 0 0 6px 0;">Monitoring Real-Time via WebSocket</h2>
+      <div>Status: <strong id="statusWs">Menghubungkan...</strong></div>
+    </div>
+    <button id="btnTest" type="button">Kirim Data Uji</button>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">Suhu Terakhir</div>
+      <div class="card-value"><span id="valSuhu">--</span> °C</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Kelembaban Terakhir</div>
+      <div class="card-value"><span id="valKelembaban">--</span> %</div>
+    </div>
+  </div>
+
+  <div class="chart-box">
+    <canvas id="chartWs" height="110"></canvas>
+  </div>
+
+  <script>
+    const ctx = document.getElementById("chartWs").getContext("2d");
+    const chartWs = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: "Suhu (°C)",
+            data: [],
+            borderColor: "rgb(239, 68, 68)",
+            backgroundColor: "rgba(239, 68, 68, 0.1)",
+            tension: 0.25
+          },
+          {
+            label: "Kelembaban (%)",
+            data: [],
+            borderColor: "rgb(2, 132, 199)",
+            backgroundColor: "rgba(2, 132, 199, 0.1)",
+            tension: 0.25
+          }
+        ]
+      },
+      options: { animation: false }
+    });
+
+    const statusEl = document.getElementById("statusWs");
+    const suhuEl = document.getElementById("valSuhu");
+    const kelembabanEl = document.getElementById("valKelembaban");
+
+    function tambahDataKeGrafik(rawPayload) {
+      let data = rawPayload;
+      if (typeof rawPayload === "string") {
+        try {
+          data = JSON.parse(rawPayload);
+        } catch (e) {
+          data = Number(rawPayload);
+        }
+      }
+
+      const suhu = typeof data === "object" && data !== null
+        ? Number(data.suhu ?? data.temperature)
+        : Number(data);
+
+      const kelembaban = typeof data === "object" && data !== null
+        ? Number(data.kelembaban ?? data.humidity)
+        : NaN;
+
+      if (Number.isNaN(suhu)) return;
+
+      const waktu = (typeof data === "object" && data !== null && data.waktu)
+        ? data.waktu
+        : new Date().toTimeString().split(" ")[0];
+
+      suhuEl.textContent = suhu.toFixed(1);
+      if (!Number.isNaN(kelembaban)) {
+        kelembabanEl.textContent = kelembaban.toFixed(1);
+      }
+
+      chartWs.data.labels.push(waktu);
+      chartWs.data.datasets[0].data.push(suhu);
+      chartWs.data.datasets[1].data.push(Number.isNaN(kelembaban) ? null : kelembaban);
+
+      if (chartWs.data.labels.length > 30) {
+        chartWs.data.labels.shift();
+        chartWs.data.datasets[0].data.shift();
+        chartWs.data.datasets[1].data.shift();
+      }
+      chartWs.update();
+    }
+
+    const ws = new WebSocket("ws://localhost:1880/ws/suhu");
+
+    ws.onopen = () => { statusEl.textContent = "Terhubung"; };
+    ws.onclose = () => { statusEl.textContent = "Terputus"; };
+    ws.onerror = () => { statusEl.textContent = "Error koneksi"; };
+
+    ws.onmessage = (event) => {
+      tambahDataKeGrafik(event.data);
+    };
+
+    document.getElementById("btnTest").addEventListener("click", () => {
+      const dummySuhu = Number((27 + Math.random() * 4).toFixed(1));
+      const dummyKelembaban = Number((55 + Math.random() * 20).toFixed(1));
+      tambahDataKeGrafik({ suhu: dummySuhu, kelembaban: dummyKelembaban });
+    });
+  </script>
+</body>
+</html>
